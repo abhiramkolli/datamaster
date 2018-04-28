@@ -1,2 +1,2 @@
-client_id,access_token,shop_url,cloud_storage_dir,big_query_dir,dateinserted,dateupdated,changedby
-1,8279ced3019a6038ac4237837110c22f,https://kopari.myshopify.com,kopari,kopari,4/26/2018 19:54,4/26/2018 19:54,akolli
+client_id,access_token,shop_url,dataset_id,cloud_storage_dir,big_query_dir,dateinserted,dateupdated,changedby
+1,8279ced3019a6038ac4237837110c22f,https://kopari.myshopify.com,kopari,kopari,kopari,4/26/2018 19:54,4/26/2018 19:54,akolli
