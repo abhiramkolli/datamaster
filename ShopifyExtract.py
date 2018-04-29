@@ -284,7 +284,7 @@ def updateloadtracker(dataset_name, table_name, ids):
     return table_data
 
 
-# In[28]:
+# In[17]:
 
 
 def loadlocalfiletogooglestorage(batfile, source_file_name, dest_file_name):
@@ -299,7 +299,7 @@ def loadlocalfiletogooglestorage(batfile, source_file_name, dest_file_name):
     print(errors)
 
 
-# In[33]:
+# In[30]:
 
 
 def loadfiletobigquery(file_name, dataset_id, table_name, delimitertype, loadtype, skipheader):
@@ -309,8 +309,8 @@ def loadfiletobigquery(file_name, dataset_id, table_name, delimitertype, loadtyp
     if skipheader is not None:
         job_config.skip_leading_rows = skipheader
     job_config.source_format = delimitertype
-    #if delimitertype == bigquery.SourceFormat.CSV:
-    job_config.autodetect = True
+    if delimitertype == bigquery.SourceFormat.CSV:
+        job_config.autodetect = True
     job_config.write_disposition = loadtype
 
     load_job = client.load_table_from_uri(
@@ -325,7 +325,7 @@ def loadfiletobigquery(file_name, dataset_id, table_name, delimitertype, loadtyp
     assert load_job.state == 'DONE'
 
 
-# In[34]:
+# In[19]:
 
 
 app_path = os.getcwd()
@@ -341,7 +341,7 @@ delimitertype = 'NEWLINE_DELIMITED_JSON'
 loadtype = 'WRITE_APPEND'
 
 
-# In[35]:
+# In[23]:
 
 
 client_details = getclient_details('Kopari Beauty')
@@ -388,7 +388,7 @@ shopifycodes = {
 dfshopifycodes = pd.DataFrame(shopifycodes)
 
 
-# In[36]:
+# In[21]:
 
 
 shoptimezone = gettimezone(shopurl, headers, cnturlparams)
@@ -397,10 +397,15 @@ runmode = runtype[1]
 runfreq = 'D'
 for row_index,row in dfshopifycodes.iterrows():
     lastshopdate = getlastupdateddate(dataset_id, row['dest_table_name']).max_updated_dt
-    lastshopdate = getconvtimeinshoptz(shoptimezone, lastshopdate)
-    lastshopdate = lastshopdate + datetime.timedelta(milliseconds=1)
-    start_date = lastshopdate
-    end_date = currentshopdate
+    if lastshopdate is not None:
+        lastshopdate = getconvtimeinshoptz(shoptimezone, lastshopdate)
+        lastshopdate = lastshopdate + datetime.timedelta(milliseconds=1)
+        start_date = lastshopdate
+        end_date = currentshopdate
+    else:
+        start_date = None
+        end_date = None
+        
     print(lastshopdate)
     dates = getshopifydates(runmode,runfreq,start_date,end_date,row['shopifycodes'], shoptimezone, row['countrurl'], headers, cnturlparams, row['pageurl'], urlparams)
     ids = []
@@ -434,6 +439,13 @@ for row_index,row in dfshopifycodes.iterrows():
     for localfilename in localfilelist:
         loadlocalfiletogooglestorage(batfile, localfilename, row['gs_file_path'])
         #os.remove(localfilename)
-    #for gcsfilename in gcsfilelist:
-        #loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
+    for gcsfilename in gcsfilelist:
+        loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
+
+
+# In[34]:
+
+
+print(dfshopifycodes['dest_table_name'][0])
+loadfiletobigquery('gs://sarasmaster/kopari/shopify/orders/orders_20180427.json', dataset_id, dfshopifycodes['dest_table_name'][0], delimitertype, loadtype, skipheader)
 
