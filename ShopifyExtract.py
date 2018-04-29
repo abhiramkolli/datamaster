@@ -77,7 +77,7 @@ def gettimezone(shoptimeurl, headers, cntparams):
     return df['iana_timezone'][0]
 
 
-# In[7]:
+# In[26]:
 
 
 def getfirstcreationdate(shopifycode, pageurl, headers, params):
@@ -85,14 +85,15 @@ def getfirstcreationdate(shopifycode, pageurl, headers, params):
     response = requests.get(pageurl, headers = headers, params = params).json()
     df = pd.DataFrame(response[shopifycode])
     min_date = min(df['created_at'])
+    print(min_date)
     return min_date
 
 
-# In[8]:
+# In[30]:
 
 
 def getshopifydates(rtype, rfreq, min_date, max_date, shopifycode, shoptimezone, countrurl, headers, cntparams, pageurl, params):
-    if (rtype == runtype[0]) or (rtype == runtype[1] and min_date == None and max_date == None):
+    if (rtype == runtype[0]) or (rtype == runtype[1] and min_date is None and max_date is None):
         currentshopdate = getcurtimeinshoptz(shoptimezone)
         to_zone = tz.gettz(shoptimezone)
         min_date_str = getfirstcreationdate(shopifycode, pageurl, headers, params)
@@ -100,12 +101,11 @@ def getshopifydates(rtype, rfreq, min_date, max_date, shopifycode, shoptimezone,
         min_date = min_date.replace(tzinfo=to_zone)
         dates = gendates(shoptimezone, min_date, currentshopdate, rfreq)
     elif rtype == runtype[1]:
-        if max_date == None:    
+        if max_date is None:    
             dates = gendates(shoptimezone, min_date, currentshopdate, rfreq)
-            return dates
         else:    
             dates = gendates(shoptimezone, min_date, max_date, rfreq)
-            return dates
+    return dates
 
 
 # In[9]:
@@ -299,7 +299,7 @@ def loadlocalfiletogooglestorage(batfile, source_file_name, dest_file_name):
     print(errors)
 
 
-# In[30]:
+# In[18]:
 
 
 def loadfiletobigquery(file_name, dataset_id, table_name, delimitertype, loadtype, skipheader):
@@ -341,7 +341,7 @@ delimitertype = 'NEWLINE_DELIMITED_JSON'
 loadtype = 'WRITE_APPEND'
 
 
-# In[23]:
+# In[27]:
 
 
 client_details = getclient_details('Kopari Beauty')
@@ -388,7 +388,7 @@ shopifycodes = {
 dfshopifycodes = pd.DataFrame(shopifycodes)
 
 
-# In[21]:
+# In[28]:
 
 
 shoptimezone = gettimezone(shopurl, headers, cnturlparams)
@@ -406,7 +406,6 @@ for row_index,row in dfshopifycodes.iterrows():
         start_date = None
         end_date = None
         
-    print(lastshopdate)
     dates = getshopifydates(runmode,runfreq,start_date,end_date,row['shopifycodes'], shoptimezone, row['countrurl'], headers, cnturlparams, row['pageurl'], urlparams)
     ids = []
     localfilelist = []
@@ -439,13 +438,6 @@ for row_index,row in dfshopifycodes.iterrows():
     for localfilename in localfilelist:
         loadlocalfiletogooglestorage(batfile, localfilename, row['gs_file_path'])
         #os.remove(localfilename)
-    for gcsfilename in gcsfilelist:
-        loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
-
-
-# In[34]:
-
-
-print(dfshopifycodes['dest_table_name'][0])
-loadfiletobigquery('gs://sarasmaster/kopari/shopify/orders/orders_20180427.json', dataset_id, dfshopifycodes['dest_table_name'][0], delimitertype, loadtype, skipheader)
+    #for gcsfilename in gcsfilelist:
+        #loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
 
