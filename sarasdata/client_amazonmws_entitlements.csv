@@ -1,0 +1,2 @@
+client_id,seller_id,marketplace_id_us_sandbox,marketplace_id_us_live,marketplace_id_iba,marketplace_id_ca,marketplace_id_com,marketplace_id_mx,mws_auth_token,dataset_id,cloud_storage_dir,big_query_dir,dateinserted,dateupdated,changedby
+1,A1UC8HQMCF0X38,A3BXB0YN3XH17H,AGWSWK15IEJJ7,A6W85IYQ5WB1C,A2EUQ1WTGCTBG2,ATVPDKIKX0DER,A1AM78C64UM0Y8,amzn.mws.6ab1727f-0e12-5215-60c4-aecf5e868e23,kopari,kopari,kopari,4/29/2018 2:05,4/29/2018 2:05,akolli
