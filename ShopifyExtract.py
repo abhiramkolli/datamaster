@@ -434,6 +434,6 @@ for row_index,row in dfshopifycodes.iterrows():
     for localfilename in localfilelist:
         loadlocalfiletogooglestorage(batfile, localfilename, row['gs_file_path'])
         #os.remove(localfilename)
-    for gcsfilename in gcsfilelist:
-        loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
+    #for gcsfilename in gcsfilelist:
+        #loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
 
