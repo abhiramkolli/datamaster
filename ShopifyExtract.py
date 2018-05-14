@@ -9,6 +9,7 @@ import json
 import math
 import time
 import os
+import uuid
 import platform
 import logging
 import subprocess
@@ -21,6 +22,8 @@ from dateutil import tz
 import dateutil.parser as dp
 from google.cloud import bigquery
 from google.cloud import storage
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 
 # In[2]:
@@ -77,7 +80,7 @@ def gettimezone(shoptimeurl, headers, cntparams):
     return df['iana_timezone'][0]
 
 
-# In[26]:
+# In[7]:
 
 
 def getfirstcreationdate(shopifycode, pageurl, headers, params):
@@ -89,7 +92,7 @@ def getfirstcreationdate(shopifycode, pageurl, headers, params):
     return min_date
 
 
-# In[30]:
+# In[8]:
 
 
 def getshopifydates(rtype, rfreq, min_date, max_date, shopifycode, shoptimezone, countrurl, headers, cntparams, pageurl, params):
@@ -118,13 +121,46 @@ def pushtojson(dfcontents, dest_file_name):
 # In[10]:
 
 
+def requests_retry_session(
+    retries=3,
+    backoff_factor=0.3,
+    status_forcelist=(500, 502, 504),
+    session=None,
+):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
+
+
+# In[11]:
+
+
 def requestshopifydata(shopifycode, pageurl, params): 
-    response = requests.get(pageurl, headers = headers, params = params)
+    t0 = time.time()
+    try:
+        response = requests_retry_session().get(pageurl, headers = headers, params = params)
+    except Exception as x:
+        print('It failed :(', x.__class__.__name__)
+    else:
+        print('It eventually worked', response.status_code)
+    finally:
+        t1 = time.time()
+        print('Took', t1 - t0, 'seconds')
+    #response = requests.get(pageurl, headers = headers, params = params)
     df = pd.DataFrame(response.json()[shopifycode])
     return df
 
 
-# In[11]:
+# In[12]:
 
 
 def getclient_details(client_name):
@@ -152,7 +188,7 @@ def getclient_details(client_name):
     return table_data
 
 
-# In[12]:
+# In[13]:
 
 
 def getvendor_details(vendor_name):
@@ -180,7 +216,7 @@ def getvendor_details(vendor_name):
     return table_data
 
 
-# In[13]:
+# In[14]:
 
 
 def getclient_shopify_entitilements(client_id):
@@ -208,7 +244,7 @@ def getclient_shopify_entitilements(client_id):
     return table_data
 
 
-# In[14]:
+# In[15]:
 
 
 def getlastupdateddate(dataset_name, table_name):
@@ -228,7 +264,7 @@ def getlastupdateddate(dataset_name, table_name):
     return table_data
 
 
-# In[15]:
+# In[16]:
 
 
 def deleteexistingrows(dataset_name, table_name, ids):
@@ -256,35 +292,45 @@ def deleteexistingrows(dataset_name, table_name, ids):
     return table_data
 
 
-# In[16]:
-
-
-def updateloadtracker(dataset_name, table_name, ids):
-    client = bigquery.Client()
-
-    query = "delete from " + dataset_id + "." + table_name + " where id in UNNEST(@ids);"
-    query_params = [
-        bigquery.ArrayQueryParameter('ids', 'INTEGER', ids)
-    ]
-
-    print(query)
-    job_config = bigquery.QueryJobConfig()
-    job_config.use_legacy_sql = False
-    job_config.query_parameters = query_params
-    query_job = client.query(query, job_config=job_config)
-
-    query_job.result()  # Wait for job to complete
-    
-    # Print the results.
-    destination_table_ref = query_job.destination
-    table = client.get_table(destination_table_ref)
-    table_data = None
-    for row in client.list_rows(table):
-        table_data = row
-    return table_data
-
-
 # In[17]:
+
+
+def createloadtracker(dataset_id,table_name,file_names,date_from,date_to):
+    load_id = uuid.uuid4()
+    dfnew = pd.DataFrame(columns=['load_id','dataset_id','table_name','file_names',
+    'date_from','date_to','loaded_to_bigquery','bigquery_load_date','creation_date',
+    'update_date','load_script_version','load_script_file_name'])
+    row = dict()
+    row['load_id'] = str(load_id)
+    row['dataset_id'] = dataset_id
+    row['table_name'] = table_name
+    row['file_names'] = file_names
+    row['date_from'] = date_from.replace(tzinfo=None)
+    row['date_to'] = date_to.replace(tzinfo=None)
+    row['loaded_to_bigquery'] = False
+    row['bigquery_load_date'] = None
+    row['creation_date'] = datetime.datetime.now()
+    row['update_date'] = datetime.datetime.now()
+    row['load_script_version'] = 'v1'
+    row['load_script_file_name'] = 'shopifyextract.py'
+    #row_s = pd.Series(row)    
+    #print(row_s)
+    #dfnew = dfnew.append(row_s,ignore_index=True)
+    return row
+
+
+# In[18]:
+
+
+def updateloadtracker(filename, dataset_id, file_names, table_name, date_from, date_to, delimitertype, loadtype, skipheader):
+    delimitertype = 'NEWLINE_DELIMITED_CSV'
+    loadtype = 'WRITE_APPEND'   
+    loadtracker = createloadtracker(dataset_id,table_name,file_names,date_from,date_to)
+    #loadtracker.to_csv(filename, index=False)
+    insertintobigquery(loadtracker, dataset_id, 'load_tracker', delimitertype, loadtype, skipheader)
+
+
+# In[19]:
 
 
 def loadlocalfiletogooglestorage(batfile, source_file_name, dest_file_name):
@@ -299,33 +345,23 @@ def loadlocalfiletogooglestorage(batfile, source_file_name, dest_file_name):
     print(errors)
 
 
-# In[18]:
+# In[20]:
 
 
-def loadfiletobigquery(file_name, dataset_id, table_name, delimitertype, loadtype, skipheader):
+def insertintobigquery(loadtracker, dataset_id, table_name, delimitertype, loadtype, skipheader):
+    
     client = bigquery.Client()
     table_ref = client.dataset(dataset_id).table(table_name)
-    job_config = bigquery.LoadJobConfig()
-    if skipheader is not None:
-        job_config.skip_leading_rows = skipheader
-    job_config.source_format = delimitertype
-    if delimitertype == bigquery.SourceFormat.CSV:
-        job_config.autodetect = True
-    job_config.write_disposition = loadtype
-
-    load_job = client.load_table_from_uri(
-        file_name,
-        table_ref,
-        job_config=job_config)  # API request
-
-    assert load_job.job_type == 'load'
-
-    load_job.result()  # Waits for table load to complete.
-
-    assert load_job.state == 'DONE'
+    print(table_ref)
+    table = client.get_table(table_ref)  # API Request   
+    row = tuple([loadtracker[field.name] for field in table.schema])
+    print(row)
+    errors = client.insert_rows(table, [row])  # API request
+    print(errors)    
+    assert errors == []
 
 
-# In[19]:
+# In[21]:
 
 
 app_path = os.getcwd()
@@ -341,7 +377,7 @@ delimitertype = 'NEWLINE_DELIMITED_JSON'
 loadtype = 'WRITE_APPEND'
 
 
-# In[27]:
+# In[22]:
 
 
 client_details = getclient_details('Kopari Beauty')
@@ -357,6 +393,8 @@ limit = 250
 filepath = app_path + filesep + client_shopify_entitilements.cloud_storage_dir + filesep + 'shopify'
 gcspath = gspath + gssep + client_shopify_entitilements.cloud_storage_dir + gssep + 'shopify'
 logpath = app_path + filesep + client_shopify_entitilements.cloud_storage_dir + filesep + 'logs'
+loadtrackerfile = app_path + filesep + client_shopify_entitilements.cloud_storage_dir + filesep + 'loadtracker.csv'
+loadtrackertable = 'load_tracking'
 hdlr = logging.FileHandler(logpath + filesep + 'shopify_' + datetime.datetime.now().strftime('%Y%m%d') + '.log')
 logger = logging.getLogger(__name__)
 print(logpath + filesep + 'shopify_' + datetime.datetime.now().strftime('%Y%m%d') + '.log')
@@ -378,8 +416,8 @@ shopifycodes = {
     'shopifycodes': ['orders', 'customers', 'products'],
     'pageurl': [shopifyurl + '/admin/orders.json', shopifyurl + '/admin/customers.json', shopifyurl + '/admin/products.json'],
     'countrurl': [shopifyurl + '/admin/orders/count.json', shopifyurl + '/admin/customers/count.json', shopifyurl + '/admin/products/count.json'],
-    'dest_file_name': [filepath + filesep + 'orders' + filesep + 'orders', filepath + filesep + 'customers' + filesep + 'customers', filepath + filesep + 'products' + filesep + 'products'],
-    'gs_file_path': [gcspath + gssep + 'orders', gcspath + gssep + 'customers', gcspath + gssep + 'products'],
+    'dest_file_name': [filepath + filesep + 'orders' + filesep + 'inbox' + filesep + 'orders', filepath + filesep + 'customers' + filesep + 'inbox' + filesep + 'customers', filepath + filesep + 'products' + filesep + 'inbox' + filesep + 'products'],
+    'gs_file_path': [gcspath + gssep + 'orders' + gssep + 'inbox', gcspath + gssep + 'customers' + gssep + 'inbox', gcspath + gssep + 'products' + gssep + 'inbox'],
     'gs_file_name': [gcspath + gssep + 'orders' + gssep + 'orders', gcspath + gssep + 'customers' + gssep + 'customers', gcspath + gssep + 'products' + gssep + 'products'],
     'dest_table_name': ['shopify_orders', 'shopify_customers', 'shopify_products'],
     'dest_file_type': ['json', 'json', 'json']
@@ -388,7 +426,13 @@ shopifycodes = {
 dfshopifycodes = pd.DataFrame(shopifycodes)
 
 
-# In[28]:
+# In[23]:
+
+
+#updateloadtracker(loadtrackerfile, dataset_id, 'Test', 'shopify_orders', datetime.datetime.now(), datetime.datetime.now(), None, None, skipheader)
+
+
+# In[24]:
 
 
 shoptimezone = gettimezone(shopurl, headers, cnturlparams)
@@ -419,25 +463,27 @@ for row_index,row in dfshopifycodes.iterrows():
         print("Total Pages:" + str(nopages))
         print("Start Date:" + dates_row['start_date'].strftime('%Y%m%d%H%M%S'))
         print("End Date:" + dates_row['end_date'].strftime('%Y%m%d%H%M%S'))
-        df = pd.DataFrame()
-        for i in range(1,nopages):
-            params = urlparams
-            params.update({'page': i,'updated_at_min' : dates_row['start_date'],'updated_at_max' : dates_row['end_date']})
-            df1 = requestshopifydata(row['shopifycodes'], row['pageurl'], params)
-            df=df.append(df1,ignore_index=True)
-            time.sleep(1)
-        ids.extend(df['id'].tolist()) if df.shape[0] > 0 else ids
-        localfilename = row['dest_file_name'] + '_' + dates_row['start_date'].strftime('%Y%m%d') + dot + row['dest_file_type']
-        gcsfilename = row['gs_file_name'] + '_' + dates_row['start_date'].strftime('%Y%m%d') + dot + row['dest_file_type']
-        localfilelist.append(localfilename)
-        gcsfilelist.append(gcsfilename)
-        pushtojson(df, localfilename)
+        if totalcnt > 0:
+            df = pd.DataFrame()
+            for i in range(1,nopages):
+                params = urlparams
+                params.update({'page': i,'updated_at_min' : dates_row['start_date'],'updated_at_max' : dates_row['end_date']})
+                df1 = requestshopifydata(row['shopifycodes'], row['pageurl'], params)
+                df=df.append(df1,ignore_index=True)
+                time.sleep(1)
+            ids.extend(df['id'].tolist()) if df.shape[0] > 0 else ids
+            localfilename = row['dest_file_name'] + '_' + dates_row['start_date'].strftime('%Y%m%d') + dot + row['dest_file_type']
+            gcsfilename = row['gs_file_name'] + '_' + dates_row['start_date'].strftime('%Y%m%d') + dot + row['dest_file_type']
+            localfilelist.append(localfilename)
+            gcsfilelist.append(gcsfilename)
+            pushtojson(df, localfilename)
+            print("Number of ids to be checked for delete:" + str(len(df['id'].tolist())))
+        #deleteexistingrows(dataset_id, row['dest_table_name'], df['id'].tolist())        
+
     
-    print("Number of ids to be checked for delete:" + str(len(ids)))
-    #deleteexistingrows(dataset_id, row['dest_table_name'], ids)        
     for localfilename in localfilelist:
+        print(localfilename)
         loadlocalfiletogooglestorage(batfile, localfilename, row['gs_file_path'])
-        #os.remove(localfilename)
-    #for gcsfilename in gcsfilelist:
-        #loadfiletobigquery(gcsfilename, dataset_id, row['dest_table_name'], delimitertype, loadtype, skipheader)
+    filenames = ','.join(localfilelist)
+    updateloadtracker(loadtrackerfile, dataset_id, filenames, row['dest_table_name'], start_date, end_date, delimitertype, loadtype, skipheader)
 
